@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# OS / Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Memory Hub runtime data (do NOT commit)
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.jsonl
+*.log
+
+# temp
+tmp/
+.cache/
