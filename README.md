@@ -16,48 +16,48 @@ Platform-grade memory system for OpenClaw + Claude Code with event sourcing, SQL
 ## Installation
 
 ```bash
-cd /Users/caihongwei/clawd/projects/p008_memory_hub
-export PYTHONPATH=./src:$PYTHONPATH
-```
+# Clone and enter directory
+git clone https://github.com/cait52099/p008_memory_hub.git
+cd p008_memory_hub
 
-### Install (recommended: venv)
-
-```bash
+# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -U pip
+
+# Install
 pip install -e .
+
+# Verify
 memory-hub --help
 ```
 
-**macOS**: If `memory-hub` is not found after install, add venv to PATH:
+**macOS**: If `memory-hub` command is not found after install, activate the venv first:
 ```bash
-# Add to ~/.zshrc or ~/.bashrc:
-export PATH="$PWD/.venv/bin:$PATH"
+source .venv/bin/activate
 ```
 
-Or use full path: `./.venv/bin/memory-hub --help`
+Or add to PATH: `export PATH="$PWD/.venv/bin:$PATH"`
 
 ## Quick Start
 
 ```bash
 # Write a memory
-python3 -m cli.commands write "Python is a great language" --type implementation
+memory-hub write "Python is a great language" --type implementation
 
 # Search memories
-python3 -m cli.commands search "Python"
+memory-hub search "Python"
 
 # Assemble context pack
-python3 -m cli.commands assemble "architecture decisions"
+memory-hub assemble "architecture decisions"
 
 # Summarize
-python3 -m cli.commands summarize --type decision
+memory-hub summarize --type decision
 
 # Show stats
-python3 -m cli.commands stats
+memory-hub stats
 
 # Export with redaction
-python3 -m cli.commands export /tmp/export.jsonl --redact
+memory-hub export /tmp/export.jsonl --redact
 ```
 
 ## CLI Commands
@@ -83,10 +83,10 @@ Options:
 
 ```bash
 # Run all tests
-PYTHONPATH=./src:$PYTHONPATH ./scripts/smoke_test.sh
-PYTHONPATH=./src:$PYTHONPATH ./scripts/eval_retrieval.sh
-PYTHONPATH=./src:$PYTHONPATH ./scripts/eval_redaction.sh
+bash scripts/verify_all.sh
 ```
+
+(If tests fail, you may need: `export PYTHONPATH=./src:$PYTHONPATH`)
 
 ## Architecture
 
@@ -101,11 +101,12 @@ Default data directory: `~/.memory_hub/`
 ## Production Notes
 
 ### Data Retention & Backup
-Backup BOTH the JSONL events file and the SQLite database:
+Backup your data directory:
 ```bash
-tar -czf backup_$(date +%F).tgz data/events data/*.db memory_bank
+# Recommended: backup ~/.memory_hub/
+tar -czf memory_hub_backup_$(date +%F).tgz ~/.memory_hub/
 ```
-Restore by extracting to the same paths.
+Restore by extracting to `~/.memory_hub/`.
 
 ### SQLite Tuning
 For better performance in production, enable WAL mode:
