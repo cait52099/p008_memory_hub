@@ -1,128 +1,97 @@
-# Memory Fabric
+# P009 Memory Fabric Global
 
-Platform-grade memory system for OpenClaw + Claude Code with event sourcing, SQLite FTS, and hybrid retrieval.
+A distributable, **global and invisible** integration that makes **Memory Fabric** the authoritative memory layer for Claude Code.
 
-## Features
+## What It Does (Globally)
 
-- **Event Store**: Append-only JSONL as immutable truth source
-- **SQLite + FTS5**: Full-text search with normalized memories
-- **Entity Graph**: Lightweight graph with entities and edges
-- **Governance**: Approval lifecycle (proposed/active/deprecated/expired)
-- **Traces**: Execution debugging and search
-- **Eval Runs**: Built-in evaluation metrics
-- **Hybrid Retrieval**: FTS + importance + recency + graph expansion
-- **Context Assembler**: Token-budgeted context packs for Claude
+- **Before every response**: automatically injects a `MEMORY_FABRIC_CONTEXT` context pack (from P008 Memory Hub) via Claude Code hooks
+- **After every response**: writes back assistant output as session notes
+- **Pre-compact**: re-injects key decisions so compaction doesn't lose them
+- **Session end**: promotes session notes to project memory (summarize/promote)
 
-## Installation
+## Prerequisites
+
+- Claude Code installed and configured
+
+## Installation Options
+
+### Option 1: Clone both repos side-by-side (recommended)
 
 ```bash
-# Clone and enter directory
+# Clone both repos in the same parent directory
 git clone https://github.com/cait52099/p008_memory_hub.git
-cd p008_memory_hub
-
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install
-pip install -e .
-
-# Verify
-memory-hub --help
+git clone https://github.com/cait52099/p009_memory_fabric_global.git
+cd p009_memory_fabric_global
+bash scripts/install.sh
 ```
 
-**macOS**: If `memory-hub` command is not found after install, activate the venv first:
-```bash
-source .venv/bin/activate
-```
-
-Or add to PATH: `export PATH="$PWD/.venv/bin:$PATH"`
-
-## Quick Start
+### Option 2: Set custom P008 path
 
 ```bash
-# Write a memory
-memory-hub write "Python is a great language" --type implementation
-
-# Search memories
-memory-hub search "Python"
-
-# Assemble context pack
-memory-hub assemble "architecture decisions"
-
-# Summarize
-memory-hub summarize --type decision
-
-# Show stats
-memory-hub stats
-
-# Export with redaction
-memory-hub export /tmp/export.jsonl --redact
+# If P008 is in a different location, set environment variable
+export MEMORY_FABRIC_P008_PATH=/path/to/p008_memory_hub
+cd p009_memory_fabric_global
+bash scripts/install.sh
 ```
 
-## CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `write <content>` | Write a memory |
-| `search <query>` | Search memories |
-| `assemble <query>` | Build context pack |
-| `summarize` | Summarize memories |
-| `approve <type> <id> <proposer>` | Approve a proposal |
-| `reject <id> <approver>` | Reject a proposal |
-| `gc [--dry-run]` | Garbage collect |
-| `export <file>` | Export events |
-| `stats` | Show statistics |
-
-Options:
-- `--type`: Memory type filter
-- `--json`: JSON output
-- `--redact`: Redact sensitive data
-
-## Testing
+### Option 3: Install P008 from GitHub
 
 ```bash
-# Run all tests
-bash scripts/verify_all.sh
+# If you don't have P008 locally, install.sh will install it from GitHub
+cd p009_memory_fabric_global
+bash scripts/install.sh
 ```
 
-(If tests fail, you may need: `export PYTHONPATH=./src:$PYTHONPATH`)
+## P008 Resolution Order
 
-## Architecture
+The install script locates P008 Memory Hub in this order:
 
-See [memory_bank/architecture.md](memory_bank/architecture.md) for details.
+1. **`MEMORY_FABRIC_P008_PATH`** environment variable (if set and directory exists)
+2. **Relative path**: `../p008_memory_hub` (side-by-side clone)
+3. **GitHub pip install**: `git+https://github.com/cait52099/p008_memory_hub.git`
 
-## Data Storage
+## Install (Global)
 
-Default data directory: `~/.memory_hub/`
-- `events/events.jsonl` - Event store
-- `memory_hub.db` - SQLite database
-
-## Production Notes
-
-### Data Retention & Backup
-Backup your data directory:
 ```bash
-# Recommended: backup ~/.memory_hub/
-tar -czf memory_hub_backup_$(date +%F).tgz ~/.memory_hub/
+cd p009_memory_fabric_global
+bash scripts/install.sh
 ```
-Restore by extracting to `~/.memory_hub/`.
 
-### SQLite Tuning
-For better performance in production, enable WAL mode:
+## Run Doctor
+
+Validate end-to-end:
+
 ```bash
-sqlite3 ~/.memory_hub/memory_hub.db "PRAGMA journal_mode=WAL;"
-sqlite3 ~/.memory_hub/memory_hub.db "PRAGMA synchronous=NORMAL;"
+bash scripts/doctor.sh
 ```
-Periodically optimize:
+
+## Uninstall
+
+Restore previous settings:
+
 ```bash
-sqlite3 ~/.memory_hub/memory_hub.db "VACUUM;"
-sqlite3 ~/.memory_hub/memory_hub.db "PRAGMA optimize;"
+bash scripts/uninstall.sh
 ```
 
-### Python Version
-Requires Python >= 3.9.
+## Upgrade
 
-## License
+Re-run install to update hooks:
 
-MIT
+```bash
+bash scripts/install.sh
+```
+
+## Files
+
+```
+p009_memory_fabric_global/
+├── claude/
+│   ├── hooks/memory_fabric/   # Hook scripts (version controlled)
+│   └── templates/hooks_block.json
+├── scripts/
+│   ├── install.sh    # Install/update hooks + runtime
+│   ├── uninstall.sh  # Restore backup + remove hooks
+│   └── doctor.sh     # Validate end-to-end
+├── openclaw/        # Placeholder for OpenClaw integration
+└── README.md
+```
