@@ -349,6 +349,17 @@ class MemoryDatabase:
         """, (memory_type, limit))
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_memories_by_type_and_source(self, memory_type: str, source: str, limit: int = 100) -> list[dict]:
+        """Get memories by type AND source/project at SQL level."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM memories
+            WHERE memory_type = ? AND source = ?
+            ORDER BY importance DESC, created_at DESC
+            LIMIT ?
+        """, (memory_type, source, limit))
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_memories_by_source(self, source: str, limit: int = 100) -> list[dict]:
         """Get memories by source/project."""
         cursor = self.conn.cursor()

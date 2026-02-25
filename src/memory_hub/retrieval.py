@@ -78,8 +78,10 @@ class HybridRetrieval:
         if not fts_results:
             # Fall back to type/source filtered memories
             if memory_type and source:
-                fts_results = self.db.get_memories_by_type(memory_type, limit=top_k * 3)
-                fts_results = [m for m in fts_results if m.get("source") == source]
+                # Use SQL-level filtering to avoid truncation by global results
+                fts_results = self.db.get_memories_by_type_and_source(
+                    memory_type, source, limit=top_k * 3
+                )
             elif memory_type:
                 fts_results = self.db.get_memories_by_type(memory_type, limit=top_k * 3)
             elif source:

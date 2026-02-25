@@ -9,4 +9,7 @@ bash scripts/smoke_test.sh
 bash scripts/eval_retrieval.sh
 bash scripts/eval_redaction.sh
 
+echo "==> Running regression tests"
+python3 tests/test_project_override.py
+
 echo "✅ All checks passed"
