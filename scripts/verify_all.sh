@@ -12,4 +12,7 @@ bash scripts/eval_redaction.sh
 echo "==> Running regression tests"
 python3 tests/test_project_override.py
 
+echo "==> Running episode tests"
+PYTHONPATH=./src:${PYTHONPATH:-} python3 -m pytest tests/test_episode.py -v
+
 echo "✅ All checks passed"

@@ -18,6 +18,14 @@ from memory_hub import (
     HybridRetrieval,
     ContextAssembler,
 )
+from memory_hub.episode import (
+    store_episode,
+    retrieve_episodes,
+    assemble_episodes_context,
+    intent_fingerprint,
+    calculate_score,
+    create_episode,
+)
 
 
 class MemoryHubCLI:
@@ -77,7 +85,7 @@ class MemoryHubCLI:
                 print(r.content[:200] + "..." if len(r.content) > 200 else r.content)
                 print(f"Explanation: {r.explanation}")
 
-    def assemble(self, query: str, max_tokens: int = 4000, memory_type: str = None, source: str = None, json_output: bool = False):
+    def assemble(self, query: str, max_tokens: int = 4000, memory_type: str = None, source: str = None, json_output: bool = False, with_episodes: bool = False, project: str = None):
         """Assemble context pack."""
         pack = self.assembler.assemble(
             query,
@@ -86,10 +94,112 @@ class MemoryHubCLI:
             source=source
         )
 
+        # Prepend episode context if requested
+        episode_context = ""
+        if with_episodes and project:
+            episode_context = assemble_episodes_context(
+                query=query,
+                project_id=project,
+                top_k=5,
+                db=self.db
+            )
+
+        output = pack.to_markdown() if not json_output else pack.to_json()
+
         if json_output:
-            print(json.dumps(pack.to_json(), indent=2, ensure_ascii=False))
+            if episode_context:
+                output["episode_context"] = episode_context
+            print(json.dumps(output, indent=2, ensure_ascii=False))
         else:
+            if episode_context:
+                print(episode_context)
+                print("\n---\n")
             print(pack.to_markdown())
+
+    def episode_record(
+        self,
+        project: str,
+        intent: str,
+        outcome: str,
+        attempts: int = 1,
+        rollbacks: int = 0,
+        error_signatures: list = None,
+        steps: list = None,
+        steps_json: Path = None,
+        evidence_json: Path = None,
+        json_output: bool = False
+    ):
+        """Record an episode."""
+        import json as json_mod
+
+        # Load steps from JSON file if provided
+        path_steps = []
+        if steps_json and steps_json.exists():
+            with open(steps_json) as f:
+                path_steps = json_mod.load(f)
+
+        # Combine CLI steps and file steps
+        all_steps = (steps or []) + path_steps
+
+        # Load evidence from JSON file if provided
+        evidence = {}
+        if evidence_json and evidence_json.exists():
+            with open(evidence_json) as f:
+                evidence = json_mod.load(f)
+
+        # Build cues
+        cues = {
+            "entities": [],
+            "error_signatures": error_signatures or [],
+            "tools": [],
+            "files": [],
+        }
+
+        # Create episode
+        episode = create_episode(
+            episode_id=None,
+            project_id=project,
+            intent=intent,
+            cues=cues,
+            path=all_steps,
+            outcome=outcome,
+            attempts=attempts,
+            rollbacks=rollbacks,
+            evidence=evidence,
+        )
+
+        # Store episode
+        episode_id = store_episode(episode, self.db, self.events)
+
+        if json_output:
+            print(json.dumps({"episode_id": episode_id, "score": episode["score"]}, indent=2))
+        else:
+            print(f"Episode recorded: {episode_id} (score: {episode['score']})")
+
+    def episode_match(self, project: str, prompt: str, top_k: int = 5, json_output: bool = False):
+        """Match episodes by prompt."""
+        results = retrieve_episodes(project, prompt, top_k, self.db)
+
+        if json_output:
+            output = [{
+                "episode_id": r.get("episode_id"),
+                "intent": r.get("intent"),
+                "outcome": r.get("outcome"),
+                "score": r.get("score"),
+                "path": r.get("path", [])[:3],
+            } for r in results]
+            print(json.dumps(output, indent=2, ensure_ascii=False))
+        else:
+            if not results:
+                print("No matching episodes found.")
+            for r in results:
+                print(f"\n--- {r.get('episode_id')} (score: {r.get('score')}) [{r.get('outcome')}] ---")
+                print(f"Intent: {r.get('intent')[:100]}...")
+                path = r.get("path", [])
+                if path:
+                    print("Path:")
+                    for step in path[:3]:
+                        print(f"  - {step}")
 
     def summarize(self, query: str = None, memory_type: str = None, json_output: bool = False):
         """Summarize memories."""
@@ -215,6 +325,31 @@ def main():
     assemble_parser.add_argument("--type", help="Memory type filter")
     assemble_parser.add_argument("--project", help="Filter by source/project")
     assemble_parser.add_argument("--json", action="store_true", help="JSON output")
+    assemble_parser.add_argument("--with-episodes", action="store_true", help="Prepend episode context")
+
+    # episode subcommand
+    episode_parser = subparsers.add_parser("episode", help="Episode commands")
+    episode_subparsers = episode_parser.add_subparsers(dest="episode_command", required=True)
+
+    # episode record
+    record_parser = episode_subparsers.add_parser("record", help="Record an episode")
+    record_parser.add_argument("--project", required=True, help="Project ID")
+    record_parser.add_argument("--intent", required=True, help="Intent text")
+    record_parser.add_argument("--outcome", required=True, choices=["success", "failure", "mixed"], help="Outcome")
+    record_parser.add_argument("--attempts", type=int, default=1, help="Number of attempts")
+    record_parser.add_argument("--rollbacks", type=int, default=0, help="Number of rollbacks")
+    record_parser.add_argument("--error-signature", action="append", default=[], help="Error signatures (repeatable)")
+    record_parser.add_argument("--step", action="append", default=[], help="Step description (repeatable)")
+    record_parser.add_argument("--steps-json", type=Path, help="Path to JSON file with steps")
+    record_parser.add_argument("--evidence-json", type=Path, help="Path to JSON file with evidence")
+    record_parser.add_argument("--json", action="store_true", help="JSON output")
+
+    # episode match
+    match_parser = episode_subparsers.add_parser("match", help="Match episodes")
+    match_parser.add_argument("--project", required=True, help="Project ID")
+    match_parser.add_argument("--prompt", required=True, help="Prompt to match")
+    match_parser.add_argument("--k", type=int, default=5, help="Number of results")
+    match_parser.add_argument("--json", action="store_true", help="JSON output")
 
     # summarize
     summarize_parser = subparsers.add_parser("summarize", help="Summarize memories")
@@ -263,7 +398,7 @@ def main():
     elif args.command == "search":
         cli.search(args.query, args.top_k, args.type, args.project, args.json)
     elif args.command == "assemble":
-        cli.assemble(args.query, args.max_tokens, args.type, args.project, args.json)
+        cli.assemble(args.query, args.max_tokens, args.type, args.project, args.json, args.with_episodes, args.project)
     elif args.command == "summarize":
         cli.summarize(args.query, args.type, args.json)
     elif args.command == "approve":
@@ -276,6 +411,27 @@ def main():
         cli.export(Path(args.output), args.redact)
     elif args.command == "stats":
         cli.stats(args.json)
+    elif args.command == "episode":
+        if args.episode_command == "record":
+            cli.episode_record(
+                project=args.project,
+                intent=args.intent,
+                outcome=args.outcome,
+                attempts=args.attempts,
+                rollbacks=args.rollbacks,
+                error_signatures=args.error_signature,
+                steps=args.step,
+                steps_json=args.steps_json,
+                evidence_json=args.evidence_json,
+                json_output=args.json
+            )
+        elif args.episode_command == "match":
+            cli.episode_match(
+                project=args.project,
+                prompt=args.prompt,
+                top_k=args.k,
+                json_output=args.json
+            )
     else:
         print(f"Unknown command: {args.command}", file=sys.stderr)
         sys.exit(1)
