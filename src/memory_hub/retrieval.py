@@ -56,7 +56,7 @@ class HybridRetrieval:
         self.event_store = event_store
         self.embedding_model = embedding_model
 
-    def search(self, query: str, top_k: int = 10, memory_type: str = None,
+    def search(self, query: str, top_k: int = 10, memory_type: str = None, source: str = None,
                use_graph: bool = False, expand_entities: bool = False) -> list[RetrievalResult]:
         """
         Perform hybrid search.
@@ -65,6 +65,7 @@ class HybridRetrieval:
             query: Search query
             top_k: Number of results to return
             memory_type: Optional filter by memory type
+            source: Optional filter by source/project
             use_graph: Whether to use graph expansion
             expand_entities: Whether to expand by entity relationships
 
@@ -72,12 +73,17 @@ class HybridRetrieval:
             List of RetrievalResult with scores and explanations
         """
         # Get FTS results
-        fts_results = self.db.search_memories_fts(query, limit=top_k * 3, memory_type=memory_type)
+        fts_results = self.db.search_memories_fts(query, limit=top_k * 3, memory_type=memory_type, source=source)
 
         if not fts_results:
-            # Fall back to type-filtered memories
-            if memory_type:
+            # Fall back to type/source filtered memories
+            if memory_type and source:
                 fts_results = self.db.get_memories_by_type(memory_type, limit=top_k * 3)
+                fts_results = [m for m in fts_results if m.get("source") == source]
+            elif memory_type:
+                fts_results = self.db.get_memories_by_type(memory_type, limit=top_k * 3)
+            elif source:
+                fts_results = self.db.get_memories_by_source(source, limit=top_k * 3)
             else:
                 fts_results = self.db.get_all_memories(limit=top_k * 3)
 

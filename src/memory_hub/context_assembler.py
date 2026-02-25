@@ -92,8 +92,8 @@ class ContextAssembler:
         self.db = database
 
     def assemble(self, query: str, max_tokens: int = 4000,
-                memory_types: list[str] = None, include_entities: bool = True,
-                include_summaries: bool = True) -> ContextPack:
+                memory_types: list[str] = None, source: str = None,
+                include_entities: bool = True, include_summaries: bool = True) -> ContextPack:
         """
         Assemble a context pack.
 
@@ -101,6 +101,7 @@ class ContextAssembler:
             query: Search query
             max_tokens: Token budget
             memory_types: Optional list of memory types to include
+            source: Optional filter by source/project
             include_entities: Whether to include entities
             include_summaries: Whether to generate summaries
 
@@ -118,6 +119,7 @@ class ContextAssembler:
                 query,
                 top_k=30,
                 memory_type=mem_type if mem_type != "all" else None,
+                source=source,
                 use_graph=True
             )
             all_memories.extend(results)

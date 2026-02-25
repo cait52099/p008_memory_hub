@@ -58,9 +58,9 @@ class MemoryHubCLI:
 
         print(f"Memory created: {memory_id}")
 
-    def search(self, query: str, top_k: int = 10, memory_type: str = None, json_output: bool = False):
+    def search(self, query: str, top_k: int = 10, memory_type: str = None, source: str = None, json_output: bool = False):
         """Search memories."""
-        results = self.retrieval.search(query, top_k=top_k, memory_type=memory_type)
+        results = self.retrieval.search(query, top_k=top_k, memory_type=memory_type, source=source)
 
         if json_output:
             output = [{
@@ -77,12 +77,13 @@ class MemoryHubCLI:
                 print(r.content[:200] + "..." if len(r.content) > 200 else r.content)
                 print(f"Explanation: {r.explanation}")
 
-    def assemble(self, query: str, max_tokens: int = 4000, memory_type: str = None, json_output: bool = False):
+    def assemble(self, query: str, max_tokens: int = 4000, memory_type: str = None, source: str = None, json_output: bool = False):
         """Assemble context pack."""
         pack = self.assembler.assemble(
             query,
             max_tokens=max_tokens,
-            memory_types=[memory_type] if memory_type else None
+            memory_types=[memory_type] if memory_type else None,
+            source=source
         )
 
         if json_output:
@@ -204,6 +205,7 @@ def main():
     search_parser.add_argument("query", help="Search query")
     search_parser.add_argument("--top-k", type=int, default=10)
     search_parser.add_argument("--type", help="Filter by type")
+    search_parser.add_argument("--project", help="Filter by source/project")
     search_parser.add_argument("--json", action="store_true", help="JSON output")
 
     # assemble
@@ -211,6 +213,7 @@ def main():
     assemble_parser.add_argument("query", help="Query")
     assemble_parser.add_argument("--max-tokens", type=int, default=4000)
     assemble_parser.add_argument("--type", help="Memory type filter")
+    assemble_parser.add_argument("--project", help="Filter by source/project")
     assemble_parser.add_argument("--json", action="store_true", help="JSON output")
 
     # summarize
@@ -258,9 +261,9 @@ def main():
     if args.command == "write":
         cli.write(args.content, args.type, args.source, args.importance)
     elif args.command == "search":
-        cli.search(args.query, args.top_k, args.type, args.json)
+        cli.search(args.query, args.top_k, args.type, args.project, args.json)
     elif args.command == "assemble":
-        cli.assemble(args.query, args.max_tokens, args.type, args.json)
+        cli.assemble(args.query, args.max_tokens, args.type, args.project, args.json)
     elif args.command == "summarize":
         cli.summarize(args.query, args.type, args.json)
     elif args.command == "approve":

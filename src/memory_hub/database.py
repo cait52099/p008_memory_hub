@@ -280,13 +280,14 @@ class MemoryDatabase:
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def search_memories_fts(self, query: str, limit: int = 10, memory_type: str = None) -> list[dict]:
+    def search_memories_fts(self, query: str, limit: int = 10, memory_type: str = None, source: str = None) -> list[dict]:
         """Full-text search memories.
 
         Args:
             query: Raw user query (will be sanitized for FTS)
             limit: Max results
             memory_type: Optional type filter
+            source: Optional source/project filter
 
         Returns:
             List of memory dicts with rank
@@ -300,7 +301,16 @@ class MemoryDatabase:
 
         cursor = self.conn.cursor()
 
-        if memory_type:
+        if memory_type and source:
+            cursor.execute("""
+                SELECT m.*, fts.rank
+                FROM memories_fts fts
+                JOIN memories m ON m.memory_id = fts.memory_id
+                WHERE memories_fts MATCH ? AND m.memory_type = ? AND m.source = ?
+                ORDER BY fts.rank
+                LIMIT ?
+            """, (safe_query, memory_type, source, limit))
+        elif memory_type:
             cursor.execute("""
                 SELECT m.*, fts.rank
                 FROM memories_fts fts
@@ -309,6 +319,15 @@ class MemoryDatabase:
                 ORDER BY fts.rank
                 LIMIT ?
             """, (safe_query, memory_type, limit))
+        elif source:
+            cursor.execute("""
+                SELECT m.*, fts.rank
+                FROM memories_fts fts
+                JOIN memories m ON m.memory_id = fts.memory_id
+                WHERE memories_fts MATCH ? AND m.source = ?
+                ORDER BY fts.rank
+                LIMIT ?
+            """, (safe_query, source, limit))
         else:
             cursor.execute("""
                 SELECT m.*, fts.rank
@@ -328,6 +347,15 @@ class MemoryDatabase:
             SELECT * FROM memories WHERE memory_type = ?
             ORDER BY importance DESC, created_at DESC LIMIT ?
         """, (memory_type, limit))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_memories_by_source(self, source: str, limit: int = 100) -> list[dict]:
+        """Get memories by source/project."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM memories WHERE source = ?
+            ORDER BY importance DESC, created_at DESC LIMIT ?
+        """, (source, limit))
         return [dict(row) for row in cursor.fetchall()]
 
     def get_all_memories(self, limit: int = 1000) -> list[dict]:
