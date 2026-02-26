@@ -26,6 +26,11 @@ from memory_hub.episode import (
     retrieve_episodes,
     assemble_episodes_context,
     create_episode,
+    extract_cues,
+    mark_episode_used,
+    bump_episode_strength,
+    get_used_episodes,
+    _USED_EPISODES,
 )
 from memory_hub import create_database, create_event_store
 
@@ -256,6 +261,64 @@ class TestEpisodeStorage:
         # Should contain our tokens
         assert "SUCCESS_TOKEN_12345" in context
         assert "FAIL_TOKEN_67890" in context
+
+
+class TestExtractCues:
+    """Test deterministic cue extraction."""
+
+    def test_extract_entities(self):
+        """Extract known entities from prompt."""
+        cues = extract_cues("fix openclaw doctor hooks gateway timeout", "")
+        assert "openclaw" in cues["entities"]
+        assert "doctor" in cues["entities"]
+        assert "hooks" in cues["entities"]
+        assert "gateway" in cues["entities"]
+
+    def test_extract_files(self):
+        """Extract file patterns from prompt."""
+        cues = extract_cues("update handler.ts and config.json", "")
+        assert "handler.ts" in cues["files"]
+        assert "config.json" in cues["files"]
+
+    def test_extract_error_signatures(self):
+        """Extract error signatures."""
+        cues = extract_cues("fix http 401 auth error", "")
+        assert len(cues["error_signatures"]) > 0
+        assert any("401" in e for e in cues["error_signatures"])
+
+    def test_extract_tools(self):
+        """Extract command tools."""
+        cues = extract_cues("run git commit and pytest", "")
+        assert "git" in cues["tools"]
+        assert "pytest" in cues["tools"]
+
+    def test_cues_stability(self):
+        """Same prompt should produce same cues."""
+        cues1 = extract_cues("fix openclaw gateway timeout", "run pytest")
+        cues2 = extract_cues("fix openclaw gateway timeout", "run pytest")
+        assert cues1 == cues2
+
+
+class TestStrengthBump:
+    """Test rehearsal strength bump."""
+
+    def test_mark_episode_used(self):
+        """Mark episode as used."""
+        # Clear state
+        _USED_EPISODES.clear()
+
+        mark_episode_used("fp123", "ep1")
+        assert "ep1" in get_used_episodes("fp123")
+
+    def test_mark_multiple_used(self):
+        """Mark multiple episodes as used."""
+        _USED_EPISODES.clear()
+
+        mark_episode_used("fp456", "ep1")
+        mark_episode_used("fp456", "ep2")
+        used = get_used_episodes("fp456")
+        assert "ep1" in used
+        assert "ep2" in used
 
 
 if __name__ == "__main__":

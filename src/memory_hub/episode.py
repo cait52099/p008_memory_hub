@@ -58,7 +58,84 @@ ERROR_SIGNATURE_PENALTIES = {
     "null_pointer": -20,
     "type error": -15,
     "type_error": -15,
+    "fts5 syntax error": -20,
+    "fts5": -20,
+    "gateway timeout": -15,
+    "authentication failed": -20,
 }
+
+# Known entities for cue extraction
+KNOWN_ENTITIES = {
+    "openclaw", "doctor", "hooks", "sessions", "gateway",
+    "minimax", "auth", "fts5", "false green", "workspace",
+    "memory-fabric", "memory_hub", "episodes", "smart inject",
+    "context_assembler", "event_store", "database", "retrieval",
+}
+
+# Known file patterns
+KNOWN_FILE_PATTERNS = {
+    "handler.ts", "settings.json", "config.json", "README.md",
+    "package.json", "tsconfig.json", ".env", "openclaw.json",
+    "hook.log", "context_pack.md", "TOOLS.md",
+}
+
+# Known command patterns
+KNOWN_COMMAND_PATTERNS = {
+    "openclaw", "memory-hub", "git", "npm", "node", "python3",
+    "bash", "pytest", "curl", "gh", "docker",
+}
+
+
+def extract_cues(prompt: str, evidence: str = "") -> dict:
+    """
+    Extract deterministic cues from prompt and evidence.
+
+    Args:
+        prompt: The user prompt to extract cues from
+        evidence: Optional evidence (commands, logs, artifacts)
+
+    Returns:
+        Dict with keys: entities, files, error_signatures, tools
+    """
+    combined = f"{prompt} {evidence}".lower()
+
+    entities = []
+    for entity in KNOWN_ENTITIES:
+        if entity in combined:
+            entities.append(entity)
+
+    # Extract file patterns (*.sh, handler.ts, etc.)
+    files = []
+    for pattern in KNOWN_FILE_PATTERNS:
+        if pattern in combined:
+            files.append(pattern)
+    # Also match *.sh pattern
+    sh_matches = re.findall(r'\b\w+\.sh\b', combined)
+    for sh in sh_matches:
+        if sh not in files:
+            files.append(sh)
+
+    # Extract error signatures
+    errors = []
+    for sig in ERROR_SIGNATURE_PENALTIES.keys():
+        if sig.replace(" ", " ") in combined or sig.replace(" ", "_") in combined:
+            if sig not in errors:
+                errors.append(sig)
+
+    # Extract command patterns
+    tools = []
+    for cmd in KNOWN_COMMAND_PATTERNS:
+        # Match command at start of word
+        if re.search(rf'\b{re.escape(cmd)}\b', combined):
+            if cmd not in tools:
+                tools.append(cmd)
+
+    return {
+        "entities": list(set(entities)),
+        "files": list(set(files)),
+        "error_signatures": errors,
+        "tools": list(set(tools)),
+    }
 
 
 def intent_fingerprint(prompt: str, project_id: str) -> str:
@@ -173,6 +250,64 @@ def calculate_score(
         "valence": valence,
         "strength": strength
     }
+
+
+# In-memory store for used episodes (reset on restart - V1)
+# Maps fingerprint -> list of episode_ids that were used/injected
+_USED_EPISODES: dict[str, list[str]] = {}
+
+
+def mark_episode_used(fingerprint: str, episode_id: str) -> None:
+    """
+    Record that an episode was used/injected for a given intent fingerprint.
+
+    Args:
+        fingerprint: The intent fingerprint
+        episode_id: The episode ID that was used
+    """
+    if fingerprint not in _USED_EPISODES:
+        _USED_EPISODES[fingerprint] = []
+    if episode_id not in _USED_EPISODES[fingerprint]:
+        _USED_EPISODES[fingerprint].append(episode_id)
+
+
+def bump_episode_strength(fingerprint: str, db) -> list[str]:
+    """
+    When a success episode is recorded for a fingerprint, bump strength
+    of all previously used episodes for that fingerprint.
+
+    Args:
+        fingerprint: The intent fingerprint
+        db: MemoryDatabase instance
+
+    Returns:
+        List of episode IDs whose strength was bumped
+    """
+    bumped = []
+    used_ids = _USED_EPISODES.get(fingerprint, [])
+
+    for episode_id in used_ids:
+        # Get the episode from db
+        mem = db.get_memory(episode_id)
+        if mem:
+            try:
+                episode = json.loads(mem["content"])
+                old_strength = episode.get("strength", 0.5)
+                # Bump by 0.05, capped at 1.0
+                new_strength = min(1.0, old_strength + 0.05)
+                episode["strength"] = new_strength
+                # Update in db
+                db.update_memory(episode_id, json.dumps(episode))
+                bumped.append(episode_id)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+    return bumped
+
+
+def get_used_episodes(fingerprint: str) -> list[str]:
+    """Get list of episode IDs used for a fingerprint."""
+    return _USED_EPISODES.get(fingerprint, [])
 
 
 def store_episode(episode: dict, db, events) -> str:
