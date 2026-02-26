@@ -15,4 +15,7 @@ python3 tests/test_project_override.py
 echo "==> Running episode tests"
 PYTHONPATH=./src:${PYTHONPATH:-} python3 -m pytest tests/test_episode.py -v
 
+echo "==> Running redaction tests"
+PYTHONPATH=./src:${PYTHONPATH:-} python3 -m pytest tests/test_redaction.py -v
+
 echo "✅ All checks passed"
