@@ -251,8 +251,10 @@ class TestEpisodeStorage:
         )
         store_episode(ep2, db, events)
 
-        # Assemble context
-        context = assemble_episodes_context("test query", "testproj", top_k=5, db=db)
+        # Assemble context - now returns tuple (markdown, included_ids)
+        result = assemble_episodes_context("test query", "testproj", top_k=5, db=db)
+        context = result[0] if isinstance(result, tuple) else result
+        included_ids = result[1] if isinstance(result, tuple) else []
 
         # Should have both sections
         assert "## Best Known Path" in context
@@ -261,6 +263,9 @@ class TestEpisodeStorage:
         # Should contain our tokens
         assert "SUCCESS_TOKEN_12345" in context
         assert "FAIL_TOKEN_67890" in context
+
+        # Should return included IDs
+        assert len(included_ids) == 2
 
 
 class TestExtractCues:
@@ -302,6 +307,16 @@ class TestExtractCues:
 class TestStrengthBump:
     """Test rehearsal strength bump."""
 
+    @pytest.fixture
+    def db_setup(self):
+        """Create temp database."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            events_path = Path(tmpdir) / "events"
+            db = create_database(db_path)
+            events = create_event_store(events_path)
+            yield db, events, tmpdir
+
     def test_mark_episode_used(self):
         """Mark episode as used."""
         # Clear state
@@ -338,6 +353,107 @@ class TestStrengthBump:
         old = 1.0
         new = min(1.0, old + 0.05)
         assert new == 1.0
+
+    def test_strength_bump_db_persistence(self, db_setup):
+        """Test real DB persistence: strength bump + re-read from DB."""
+        db, events, tmpdir = db_setup
+        _USED_EPISODES.clear()
+
+        project_id = "testproj"
+        fingerprint = "testproj::fix+login"
+
+        # Create and store episode with strength=0.95
+        episode1 = create_episode(
+            episode_id="ep95",
+            project_id=project_id,
+            intent="Fix login bug",
+            cues={"entities": [], "error_signatures": [], "tools": [], "files": []},
+            path=["Check auth logic"],
+            outcome="failure",  # Start as failure to have low strength
+            attempts=2,
+            rollbacks=1
+        )
+        # Override strength to 0.95 manually
+        episode1["strength"] = 0.95
+        store_episode(episode1, db, events)
+
+        # Create another episode with strength=0.50
+        episode2 = create_episode(
+            episode_id="ep50",
+            project_id=project_id,
+            intent="Fix login bug",
+            cues={"entities": [], "error_signatures": [], "tools": [], "files": []},
+            path=["Update validation"],
+            outcome="failure",
+            attempts=1,
+            rollbacks=0
+        )
+        episode2["strength"] = 0.50
+        store_episode(episode2, db, events)
+
+        # Mark both as used
+        mark_episode_used(fingerprint, "ep95")
+        mark_episode_used(fingerprint, "ep50")
+
+        # Bump strength (should limit to 3 by default)
+        bumped_ids = bump_episode_strength(fingerprint, db, project_id=project_id, bump=0.05, cap=1.0, limit=3)
+
+        # Verify DB was updated: re-read episodes
+        mem1 = db.get_memory("ep95")
+        assert mem1 is not None
+        ep1_updated = json.loads(mem1["content"])
+
+        mem2 = db.get_memory("ep50")
+        assert mem2 is not None
+        ep2_updated = json.loads(mem2["content"])
+
+        # Check cap: 0.95 + 0.05 = 1.0 (capped)
+        assert ep1_updated["strength"] == 1.0, f"Expected 1.0, got {ep1_updated['strength']}"
+
+        # Check normal bump: 0.50 + 0.05 = 0.55
+        assert ep2_updated["strength"] == 0.55, f"Expected 0.55, got {ep2_updated['strength']}"
+
+    def test_strength_bump_limit(self, db_setup):
+        """Test that bump is limited to N most recent used IDs."""
+        db, events, tmpdir = db_setup
+        _USED_EPISODES.clear()
+
+        project_id = "testproj"
+        fingerprint = "testproj::fix+bug"
+
+        # Create 5 episodes
+        for i in range(5):
+            ep = create_episode(
+                episode_id=f"ep{i}",
+                project_id=project_id,
+                intent="Fix bug",
+                cues={"entities": [], "error_signatures": [], "tools": [], "files": []},
+                path=[f"Step {i}"],
+                outcome="failure",
+                attempts=1,
+                rollbacks=0
+            )
+            ep["strength"] = 0.50
+            store_episode(ep, db, events)
+            mark_episode_used(fingerprint, f"ep{i}")
+
+        # Bump with limit=2
+        bumped_ids = bump_episode_strength(fingerprint, db, project_id=project_id, bump=0.05, cap=1.0, limit=2)
+
+        # Should only bump 2 episodes (the first 2 from used list)
+        assert len(bumped_ids) == 2, f"Expected 2 bumped, got {len(bumped_ids)}"
+
+        # Verify only ep0 and ep1 were bumped (deterministic: first N)
+        for ep_id in ["ep0", "ep1"]:
+            mem = db.get_memory(ep_id)
+            ep = json.loads(mem["content"])
+            assert ep["strength"] == 0.55, f"{ep_id} should be 0.55"
+
+        # Verify others unchanged
+        for ep_id in ["ep2", "ep3", "ep4"]:
+            mem = db.get_memory(ep_id)
+            ep = json.loads(mem["content"])
+            assert ep["strength"] == 0.50, f"{ep_id} should still be 0.50"
 
 
 if __name__ == "__main__":

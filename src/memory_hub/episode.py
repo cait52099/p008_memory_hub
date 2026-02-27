@@ -271,7 +271,14 @@ def mark_episode_used(fingerprint: str, episode_id: str) -> None:
         _USED_EPISODES[fingerprint].append(episode_id)
 
 
-def bump_episode_strength(fingerprint: str, db) -> list[str]:
+def bump_episode_strength(
+    fingerprint: str,
+    db,
+    project_id: str = None,
+    bump: float = 0.05,
+    cap: float = 1.0,
+    limit: int = 3
+) -> list[str]:
     """
     When a success episode is recorded for a fingerprint, bump strength
     of all previously used episodes for that fingerprint.
@@ -279,6 +286,10 @@ def bump_episode_strength(fingerprint: str, db) -> list[str]:
     Args:
         fingerprint: The intent fingerprint
         db: MemoryDatabase instance
+        project_id: Optional project ID (for logging)
+        bump: Amount to bump strength (default 0.05)
+        cap: Maximum strength cap (default 1.0)
+        limit: Maximum number of used IDs to bump (default 3)
 
     Returns:
         List of episode IDs whose strength was bumped
@@ -286,15 +297,18 @@ def bump_episode_strength(fingerprint: str, db) -> list[str]:
     bumped = []
     used_ids = _USED_EPISODES.get(fingerprint, [])
 
-    for episode_id in used_ids:
+    # Take only the most recent N used IDs (deterministic: first N from list)
+    ids_to_bump = used_ids[:limit]
+
+    for episode_id in ids_to_bump:
         # Get the episode from db
         mem = db.get_memory(episode_id)
         if mem:
             try:
                 episode = json.loads(mem["content"])
                 old_strength = episode.get("strength", 0.5)
-                # Bump by 0.05, capped at 1.0
-                new_strength = min(1.0, old_strength + 0.05)
+                # Bump by specified amount, capped at cap
+                new_strength = min(cap, old_strength + bump)
                 episode["strength"] = new_strength
                 # Update in db
                 db.update_memory(episode_id, json.dumps(episode))
@@ -432,7 +446,7 @@ def assemble_episodes_context(
     project_id: str,
     top_k: int,
     db
-) -> str:
+) -> tuple[str, list[str]]:
     """
     Assemble context from successful and failed episodes.
 
@@ -447,7 +461,7 @@ def assemble_episodes_context(
         db: MemoryDatabase instance
 
     Returns:
-        Markdown string with episode context
+        Tuple of (markdown string, list of included episode IDs)
     """
     # Get all episode memories for this project
     all_episodes = db.get_memories_by_type_and_source(
@@ -531,10 +545,13 @@ def assemble_episodes_context(
                     lines.append(f"- {step}")
                 lines.append("")
 
-    if not lines:
-        return "No episode history found for this project."
+    # Collect included episode IDs (final selection)
+    included_ids = [ep.get("episode_id") for ep in successes + failures if ep.get("episode_id")]
 
-    return "\n".join(lines)
+    if not lines:
+        return ("No episode history found for this project.", [])
+
+    return ("\n".join(lines), included_ids)
 
 
 def create_episode(

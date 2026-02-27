@@ -98,22 +98,30 @@ class MemoryHubCLI:
 
         # Prepend episode context if requested
         episode_context = ""
+        included_episode_ids = []
         if with_episodes and project:
-            # Mark episodes as used (for rehearsal strength bump)
-            episodes = retrieve_episodes(project, query, top_k=5, db=self.db)
             fp = intent_fingerprint(query, project)
-            for ep in episodes:
-                try:
-                    mark_episode_used(fp, ep.get("episode_id", ""))
-                except Exception:
-                    pass  # Best-effort
 
-            episode_context = assemble_episodes_context(
+            # Get final episodes AFTER assemble selects them
+            episode_result = assemble_episodes_context(
                 query=query,
                 project_id=project,
                 top_k=5,
                 db=self.db
             )
+
+            # Handle new tuple return format (markdown, included_ids)
+            if isinstance(episode_result, tuple):
+                episode_context, included_episode_ids = episode_result
+            else:
+                episode_context = episode_result  # Fallback for empty
+
+            # Mark FINAL included episodes as used (post-render selection)
+            for ep_id in included_episode_ids:
+                try:
+                    mark_episode_used(fp, ep_id)
+                except Exception:
+                    pass  # Best-effort
 
         output = pack.to_markdown() if not json_output else pack.to_json()
 
