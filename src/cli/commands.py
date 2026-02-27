@@ -25,6 +25,8 @@ from memory_hub.episode import (
     intent_fingerprint,
     calculate_score,
     create_episode,
+    mark_episode_used,
+    bump_episode_strength,
 )
 
 
@@ -97,6 +99,15 @@ class MemoryHubCLI:
         # Prepend episode context if requested
         episode_context = ""
         if with_episodes and project:
+            # Mark episodes as used (for rehearsal strength bump)
+            episodes = retrieve_episodes(project, query, top_k=5, db=self.db)
+            fp = intent_fingerprint(query, project)
+            for ep in episodes:
+                try:
+                    mark_episode_used(fp, ep.get("episode_id", ""))
+                except Exception:
+                    pass  # Best-effort
+
             episode_context = assemble_episodes_context(
                 query=query,
                 project_id=project,
@@ -170,6 +181,14 @@ class MemoryHubCLI:
 
         # Store episode
         episode_id = store_episode(episode, self.db, self.events)
+
+        # Bump strength of used episodes if this was a success
+        if outcome == "success":
+            fp = intent_fingerprint(intent, project)
+            try:
+                bump_episode_strength(fp, self.db)
+            except Exception:
+                pass  # Best-effort
 
         if json_output:
             print(json.dumps({"episode_id": episode_id, "score": episode["score"]}, indent=2))

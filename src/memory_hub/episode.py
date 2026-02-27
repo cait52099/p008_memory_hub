@@ -131,10 +131,10 @@ def extract_cues(prompt: str, evidence: str = "") -> dict:
                 tools.append(cmd)
 
     return {
-        "entities": list(set(entities)),
-        "files": list(set(files)),
-        "error_signatures": errors,
-        "tools": list(set(tools)),
+        "entities": sorted(set(entities)),
+        "files": sorted(set(files)),
+        "error_signatures": sorted(errors),
+        "tools": sorted(set(tools)),
     }
 
 

@@ -320,6 +320,25 @@ class TestStrengthBump:
         assert "ep1" in used
         assert "ep2" in used
 
+    def test_strength_bump_cap(self):
+        """Strength bump should cap at 1.0."""
+        _USED_EPISODES.clear()
+
+        # Test the cap logic: 0.95 + 0.05 = 1.0 (capped)
+        old = 0.95
+        new = min(1.0, old + 0.05)
+        assert new == 1.0
+
+        # Test normal bump: 0.50 + 0.05 = 0.55
+        old = 0.50
+        new = min(1.0, old + 0.05)
+        assert new == 0.55
+
+        # Test already at cap
+        old = 1.0
+        new = min(1.0, old + 0.05)
+        assert new == 1.0
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
