@@ -26,3 +26,6 @@ data/
 # temp
 tmp/
 .cache/
+
+# OMC state (auto-generated)
+.omc/
